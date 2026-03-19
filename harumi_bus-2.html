@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="晴海バス">
+<title>晴海バス時刻表</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  background: #f5f4f0;
+  color: #1a1a1a;
+  min-height: 100dvh;
+}
+.wrap { padding: 16px; max-width: 600px; margin: 0 auto; }
+.clock {
+  text-align: center;
+  background: #fff;
+  border-radius: 14px;
+  border: 0.5px solid rgba(0,0,0,0.1);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.clock-time { font-size: 42px; font-weight: 500; letter-spacing: 2px; color: #1a1a1a; }
+.clock-date { font-size: 14px; color: #888; margin-top: 2px; }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (max-width: 360px) { .grid { grid-template-columns: 1fr; } }
+.card {
+  background: #fff;
+  border-radius: 14px;
+  border: 0.5px solid rgba(0,0,0,0.1);
+  padding: 14px 14px 10px;
+}
+.card-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; white-space: nowrap; margin-top: 2px; }
+.badge-brt { background: #deedfb; color: #0c447c; }
+.badge-toei { background: #e4f2d8; color: #27500a; }
+.dest { font-size: 15px; font-weight: 500; color: #1a1a1a; }
+.stop { font-size: 11px; color: #999; margin-top: 1px; }
+.bus-row {
+  display: flex; align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 0.5px solid rgba(0,0,0,0.08);
+}
+.bus-row:first-of-type { border-top: none; }
+.bus-label { font-size: 12px; color: #999; flex-shrink: 0; }
+.bus-right { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.bus-time { font-size: 22px; font-weight: 500; color: #1a1a1a; font-variant-numeric: tabular-nums; }
+.bus-min { font-size: 12px; color: #aaa; }
+.bus-min.soon { color: #ba7517; font-weight: 500; }
+.bus-min.urgent { color: #a32d2d; font-weight: 500; }
+.ichiba-tag {
+  font-size: 10px; font-weight: 500;
+  padding: 1px 6px; border-radius: 20px;
+  background: #faeeda; color: #633806;
+}
+.nobus { font-size: 12px; color: #bbb; padding: 4px 0; }
+.footer { text-align: center; font-size: 11px; color: #bbb; margin-top: 16px; padding-bottom: 16px; }
+@media (prefers-color-scheme: dark) {
+  body { background: #1c1c1e; color: #f0f0f0; }
+  .clock, .card { background: #2c2c2e; border-color: rgba(255,255,255,0.08); }
+  .clock-time, .dest, .bus-time { color: #f0f0f0; }
+  .clock-date, .stop, .bus-label, .bus-min, .nobus { color: #888; }
+  .bus-row { border-color: rgba(255,255,255,0.07); }
+  .badge-brt { background: #0c3060; color: #85b7eb; }
+  .badge-toei { background: #1a3a0a; color: #97c459; }
+  .ichiba-tag { background: #3a2a10; color: #fac775; }
+  .bus-min.soon { color: #ef9f27; }
+  .bus-min.urgent { color: #f09595; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="clock">
+    <div class="clock-time" id="now-time">--:--:--</div>
+    <div class="clock-date" id="now-date"></div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="footer">晴海5-6-7 バス時刻表 ／ 2026年4月1日改正</div>
+</div>
+
+<script>
+// 内閣府公式データに基づく祝日・休日（2025〜2027年）
+const HOLIDAYS = new Set([
+  '2025-01-01','2025-01-13','2025-02-11','2025-02-23','2025-02-24',
+  '2025-03-20','2025-04-29','2025-05-03','2025-05-04','2025-05-05',
+  '2025-05-06','2025-07-21','2025-08-11','2025-09-15','2025-09-22',
+  '2025-09-23','2025-10-13','2025-11-03','2025-11-23','2025-11-24',
+  '2026-01-01','2026-01-12','2026-02-11','2026-02-23',
+  '2026-03-20','2026-04-29','2026-05-03','2026-05-04','2026-05-05','2026-05-06',
+  '2026-07-20','2026-08-11','2026-09-21','2026-09-22','2026-09-23',
+  '2026-10-12','2026-11-03','2026-11-23',
+  '2027-01-01','2027-01-11','2027-02-11','2027-02-23',
+  '2027-03-21','2027-03-22','2027-04-29','2027-05-03','2027-05-04','2027-05-05',
+  '2027-07-19','2027-08-11','2027-09-20','2027-09-23',
+  '2027-10-11','2027-11-03','2027-11-23'
+]);
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function getDayType(d) {
+  if (HOLIDAYS.has(dateKey(d))) return 'holiday';
+  const w = d.getDay();
+  if (w === 0) return 'holiday';
+  if (w === 6) return 'saturday';
+  return 'weekday';
+}
+
+const ROUTES = [
+  {
+    id:'b01', type:'brt', dest:'新橋', line:'B01', stop:'晴海ふ頭公園',
+    weekday:{
+      6:[{m:31},{m:45},{m:59}],
+      7:[{m:13},{m:23},{m:33},{m:43},{m:49},{m:55}],
+      8:[{m:1},{m:7},{m:13},{m:19},{m:25},{m:31},{m:37},{m:43},{m:49},{m:55}],
+      9:[{m:3},{m:13},{m:23},{m:36},{m:54}],
+      10:[{m:9},{m:24},{m:39},{m:54}],11:[{m:9},{m:24},{m:39},{m:54}],
+      12:[{m:9},{m:24},{m:39},{m:54}],13:[{m:9},{m:24},{m:39},{m:54}],
+      14:[{m:9},{m:24},{m:39},{m:54}],15:[{m:9},{m:24},{m:39},{m:54}],
+      16:[{m:9},{m:24},{m:39},{m:54}],17:[{m:9},{m:24},{m:39},{m:54}],
+      18:[{m:9},{m:23},{m:40},{m:50}],
+      19:[{m:3},{m:15},{m:25},{m:38},{m:48}],
+      20:[{m:1},{m:17},{m:31},{m:47}],
+      21:[{m:2},{m:16},{m:32},{m:46}],22:[{m:2},{m:16}]
+    },
+    saturday:{
+      6:[{m:33},{m:53}],7:[{m:13},{m:33},{m:53}],
+      8:[{m:8},{m:23},{m:38},{m:53}],9:[{m:8},{m:23},{m:38},{m:53}],
+      10:[{m:8},{m:23},{m:38},{m:53}],11:[{m:8},{m:23},{m:38},{m:53}],
+      12:[{m:8},{m:23},{m:38},{m:53}],13:[{m:8},{m:23},{m:38},{m:53}],
+      14:[{m:8},{m:23},{m:38},{m:53}],15:[{m:8},{m:23},{m:38},{m:53}],
+      16:[{m:8},{m:23},{m:38},{m:53}],17:[{m:8},{m:23},{m:38},{m:53}],
+      18:[{m:8},{m:23},{m:38},{m:53}],19:[{m:8},{m:23},{m:38},{m:53}],
+      20:[{m:8},{m:23},{m:38},{m:53}],21:[{m:8},{m:23},{m:38},{m:58}],22:[{m:18}]
+    },
+    holiday:{
+      6:[{m:33},{m:53}],7:[{m:13},{m:33},{m:53}],
+      8:[{m:8},{m:23},{m:38},{m:53}],9:[{m:8},{m:23},{m:38},{m:53}],
+      10:[{m:8},{m:23},{m:38},{m:53}],11:[{m:8},{m:23},{m:38},{m:53}],
+      12:[{m:8},{m:23},{m:38},{m:53}],13:[{m:8},{m:23},{m:38},{m:53}],
+      14:[{m:8},{m:23},{m:38},{m:53}],15:[{m:8},{m:23},{m:38},{m:53}],
+      16:[{m:8},{m:23},{m:38},{m:53}],17:[{m:8},{m:23},{m:38},{m:53}],
+      18:[{m:8},{m:23},{m:38},{m:53}],19:[{m:8},{m:23},{m:38},{m:53}],
+      20:[{m:8},{m:23},{m:38},{m:53}],21:[{m:8},{m:23},{m:38},{m:58}],22:[{m:18}]
+    }
+  },
+  {
+    id:'toei05', type:'toei', dest:'東京駅', line:'都05', stop:'はるみらい前',
+    weekday:{
+      6:[{m:32},{m:41},{m:47},{m:53},{m:58}],
+      7:[{m:4},{m:9},{m:14},{m:19},{m:24},{m:29},{m:34},{m:39},{m:44},{m:49},{m:54},{m:59}],
+      8:[{m:4},{m:9},{m:14},{m:19},{m:24},{m:29},{m:35},{m:41},{m:47},{m:53},{m:59}],
+      9:[{m:5},{m:11},{m:18},{m:25},{m:32},{m:39},{m:46},{m:53}],
+      10:[{m:0},{m:7},{m:15},{m:23},{m:32},{m:41},{m:50},{m:59}],
+      11:[{m:8},{m:17},{m:26},{m:35},{m:44},{m:53}],
+      12:[{m:3},{m:13},{m:23},{m:32},{m:41},{m:50},{m:59}],
+      13:[{m:8},{m:17},{m:26},{m:35},{m:44},{m:53}],
+      14:[{m:3},{m:13},{m:23},{m:33},{m:43},{m:53}],
+      15:[{m:3},{m:13},{m:23},{m:32},{m:41},{m:49},{m:56}],
+      16:[{m:3},{m:10},{m:17},{m:24},{m:31},{m:38},{m:45},{m:52},{m:59}],
+      17:[{m:6},{m:13},{m:20},{m:27},{m:34},{m:41},{m:48},{m:55}],
+      18:[{m:2},{m:9},{m:16},{m:23},{m:30},{m:37},{m:44},{m:51},{m:59}],
+      19:[{m:7},{m:16},{m:25},{m:36},{m:47},{m:59}],
+      20:[{m:11},{m:23},{m:35},{m:47},{m:59}],
+      21:[{m:11},{m:22},{m:34},{m:45}]
+    },
+    saturday:{
+      6:[{m:32},{m:43},{m:55}],
+      7:[{m:6},{m:16},{m:25},{m:33},{m:41},{m:49},{m:57}],
+      8:[{m:4},{m:12},{m:21},{m:29},{m:37},{m:45},{m:54}],
+      9:[{m:2},{m:10},{m:18},{m:26},{m:34},{m:42},{m:51},{m:59}],
+      10:[{m:8},{m:18},{m:28},{m:38},{m:48},{m:58}],
+      11:[{m:8},{m:18},{m:27},{m:36},{m:45},{m:54}],
+      12:[{m:3},{m:12},{m:21},{m:30},{m:39},{m:48},{m:57}],
+      13:[{m:6},{m:15},{m:24},{m:33},{m:43},{m:53}],
+      14:[{m:3},{m:13},{m:23},{m:33},{m:43},{m:53}],
+      15:[{m:3},{m:13},{m:23},{m:33},{m:43},{m:53}],
+      16:[{m:3},{m:13},{m:22},{m:31},{m:40},{m:49},{m:57}],
+      17:[{m:5},{m:13},{m:21},{m:30},{m:39},{m:48},{m:58}],
+      18:[{m:8},{m:18},{m:29},{m:40},{m:51}],
+      19:[{m:2},{m:13},{m:25},{m:38},{m:51}],
+      20:[{m:6},{m:21},{m:34},{m:47}],
+      21:[{m:1},{m:15},{m:29},{m:47}],22:[{m:7}]
+    },
+    holiday:{
+      6:[{m:32},{m:47}],
+      7:[{m:2},{m:16},{m:28},{m:38},{m:48},{m:58}],
+      8:[{m:8},{m:18},{m:28},{m:38},{m:48},{m:58}],
+      9:[{m:8},{m:18},{m:28},{m:38},{m:48},{m:58}],
+      10:[{m:8},{m:18},{m:28},{m:38},{m:48},{m:58}],
+      11:[{m:8},{m:18},{m:28},{m:37},{m:46},{m:55}],
+      12:[{m:4},{m:13},{m:22},{m:32},{m:42},{m:52}],
+      13:[{m:2},{m:12},{m:22},{m:32},{m:42},{m:52}],
+      14:[{m:2},{m:12},{m:22},{m:32},{m:42},{m:52}],
+      15:[{m:2},{m:12},{m:22},{m:32},{m:41},{m:50},{m:59}],
+      16:[{m:8},{m:17},{m:26},{m:35},{m:44},{m:53}],
+      17:[{m:2},{m:12},{m:22},{m:32},{m:43},{m:54}],
+      18:[{m:5},{m:16},{m:27},{m:39},{m:51}],
+      19:[{m:3},{m:15},{m:27},{m:40},{m:53}],
+      20:[{m:6},{m:19},{m:33},{m:46}],
+      21:[{m:0},{m:15},{m:31},{m:48}],22:[{m:7}]
+    }
+  },
+  {
+    id:'nishiki13', type:'toei', dest:'錦糸町', line:'錦13', stop:'はるみらい前',
+    weekday:{
+      6:[{m:44}],7:[{m:7},{m:21},{m:45}],8:[{m:11},{m:30},{m:49},{m:58}],
+      9:[{m:16},{m:37}],10:[{m:9},{m:49}],11:[{m:28},{m:54}],12:[{m:30}],
+      13:[{m:5},{m:29},{m:53}],14:[{m:15},{m:37},{m:57}],15:[{m:15},{m:32},{m:48}],
+      16:[{m:3},{m:19},{m:42}],17:[{m:0},{m:18},{m:40}],18:[{m:2},{m:25},{m:50}],
+      19:[{m:19},{m:50}],20:[{m:22},{m:49}],21:[{m:18},{m:45}]
+    },
+    saturday:{
+      6:[{m:47}],7:[{m:1},{m:15},{m:32},{m:49}],8:[{m:6},{m:24},{m:41},{m:59}],
+      9:[{m:17},{m:33},{m:50},{m:59}],10:[{m:15},{m:31},{m:47}],11:[{m:14},{m:32},{m:59}],
+      12:[{m:17},{m:41},{m:57}],13:[{m:14},{m:41},{m:59}],14:[{m:9},{m:29},{m:59}],
+      15:[{m:21},{m:42}],16:[{m:1},{m:27},{m:47}],17:[{m:7},{m:40}],
+      18:[{m:4},{m:30},{m:44}],19:[{m:14}],20:[{m:4},{m:42}],21:[{m:14},{m:45}]
+    },
+    holiday:{
+      6:[{m:42}],7:[{m:4},{m:38}],8:[{m:15},{m:38}],9:[{m:2},{m:28}],
+      10:[{m:15},{m:52}],11:[{m:33},{m:59}],12:[{m:24}],
+      13:[{m:3},{m:29},{m:55}],14:[{m:34}],15:[{m:0},{m:26},{m:52}],
+      16:[{m:19},{m:46}],17:[{m:14},{m:29},{m:59}],18:[{m:26},{m:53}],
+      19:[{m:34}],20:[{m:24}],21:[{m:2},{m:39}]
+    }
+  },
+  {
+    id:'b05', type:'brt', dest:'ビッグサイト', line:'B05', stop:'晴海五丁目ターミナル',
+    weekday:{
+      9:[{m:26}],11:[{m:0},{m:23},{m:49},{m:59}],12:[{m:21}],
+      13:[{m:2},{m:35}],14:[{m:39},{m:50}],15:[{m:10,ichiba:true},{m:52}],
+      16:[{m:6}],18:[{m:35},{m:42}],19:[{m:33}],20:[{m:27},{m:43}]
+    },
+    saturday:{
+      13:[{m:19}],14:[{m:19},{m:50}],16:[{m:6},{m:51}],
+      17:[{m:51}],19:[{m:8},{m:21,ichiba:true}]
+    },
+    holiday:{
+      13:[{m:19}],14:[{m:19},{m:50}],16:[{m:6},{m:51}],
+      17:[{m:51}],19:[{m:8},{m:21,ichiba:true}]
+    }
+  }
+];
+
+function getNextBuses(route, now, count) {
+  const tt = route[getDayType(now)] || {};
+  const cur = now.getHours()*60 + now.getMinutes();
+  const results = [];
+  for (const hr of Object.keys(tt).map(Number).sort((a,b)=>a-b)) {
+    for (const entry of tt[hr]) {
+      const t = hr*60 + entry.m;
+      if (t >= cur) {
+        results.push({h:hr, m:entry.m, diff:t-cur, ichiba:!!entry.ichiba});
+        if (results.length >= count) return results;
+      }
+    }
+  }
+  return results;
+}
+
+function pad(n) { return String(n).padStart(2,'0'); }
+
+function renderRow(bus, label) {
+  if (!bus) return `<div class="bus-row"><span class="bus-label">${label}</span><span class="nobus">本日終了</span></div>`;
+  const d = bus.diff;
+  let minCls = 'bus-min', minTxt;
+  if (d===0)      { minTxt='まもなく'; minCls+=' urgent'; }
+  else if (d<=5)  { minTxt=`あと${d}分`; minCls+=' urgent'; }
+  else if (d<=15) { minTxt=`あと${d}分`; minCls+=' soon'; }
+  else            { minTxt=`あと${d}分`; }
+  const ichiba = bus.ichiba ? `<span class="ichiba-tag">市場前経由</span>` : '';
+  return `<div class="bus-row">
+    <span class="bus-label">${label}</span>
+    <span class="bus-right">
+      ${ichiba}
+      <span class="bus-time">${pad(bus.h)}:${pad(bus.m)}</span>
+      <span class="${minCls}">${minTxt}</span>
+    </span>
+  </div>`;
+}
+
+function renderCard(route, now) {
+  const buses = getNextBuses(route, now, 2);
+  return `<div class="card">
+    <div class="card-header">
+      <span class="badge ${route.type==='brt'?'badge-brt':'badge-toei'}">${route.line}</span>
+      <div>
+        <div class="dest">${route.dest}行き</div>
+        <div class="stop">${route.stop}</div>
+      </div>
+    </div>
+    ${renderRow(buses[0],'次の便')}
+    ${renderRow(buses[1],'その次')}
+  </div>`;
+}
+
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('now-time').textContent =
+    `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const days=['日','月','火','水','木','金','土'];
+  const dt = getDayType(now);
+  const dlabel = dt==='weekday'?'平日':dt==='saturday'?'土曜':'日祝';
+  document.getElementById('now-date').textContent =
+    `${now.getMonth()+1}月${now.getDate()}日（${days[now.getDay()]}） ${dlabel}ダイヤ`;
+}
+
+function updateBuses() {
+  const now = new Date();
+  document.getElementById('grid').innerHTML = ROUTES.map(r=>renderCard(r,now)).join('');
+}
+
+updateClock();
+updateBuses();
+setInterval(updateClock, 1000);
+setInterval(updateBuses, 1000);
+</script>
+</body>
+</html>
